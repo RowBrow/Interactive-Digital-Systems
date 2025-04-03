@@ -1,5 +1,4 @@
 #include <WiFi.h>
-#include <WiFiAP.h>
 #include <PubSubClient.h>
 
 const char* SSID = "RUC-IOT";
@@ -15,6 +14,12 @@ const char* MQTT_CLIENT_ID = "IDS_ESP32_RFID_READER";
 
 const char* MQTT_SUBSCRIBE_TOPIC = "IDS_ESP32/write_rfid";
 const char* MQTT_PUBLISH_TOPIC = "IDS_ESP32/read_rfid";
+
+/**
+ * Specifies the total number of
+ * messages sent so far.
+ */
+int total_sent_messages = 0;
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -62,6 +67,8 @@ void reconnect() {
 }
 
 void setup() {
+  // Reset the memory
+  total_sent_messages = 0;
   Serial.begin(115200);
   setup_wifi();
   mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
@@ -82,5 +89,7 @@ void loop() {
 
   // Publishing messages
   mqttClient.publish(MQTT_PUBLISH_TOPIC, "{\"rfid\":\"2142a9bbb2ou34h234i\",\"device\":\"aDevice\"}");
+  Serial.printf("Published %d messages so far.\n", total_sent_messages);
+  total_sent_messages++;
   delay(5000);
-} 
+}
