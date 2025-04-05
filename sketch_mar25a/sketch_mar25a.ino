@@ -1,95 +1,133 @@
-#include <WiFi.h>
-#include <PubSubClient.h>
+// (c) Michael Schoeffler 2018, http://www.mschoeffler.de
+const int RX_PIN = 3;
+const int TX_PIN = 1;
 
-const char* SSID = "RUC-IOT";
-const char* PASSWORD = "GiHa2638La";
-const int MAX_CONNECTION_TRIES = 20;
 
-const char* MQTT_SERVER = "public.cloud.shiftr.io";
-const int MQTT_PORT = 1883;
+const int BUFFER_SIZE = 14;       // RFID DATA FRAME FORMAT: 1byte head (value: 2), 10byte data (2byte version + 8byte tag), 2byte checksum, 1byte tail (value: 3)
+const int DATA_SIZE = 10;         // 10byte data (2byte version + 8byte tag)
+const int DATA_VERSION_SIZE = 2;  // 2byte version (actual meaning of these two bytes may vary)
+const int DATA_TAG_SIZE = 8;      // 8byte tag
+const int CHECKSUM_SIZE = 2;      // 2byte checksum
 
-const char* MQTT_USER = "public";
-const char* MQTT_PASSWORD = "public";
-const char* MQTT_CLIENT_ID = "IDS_ESP32_RFID_READER";
+HardwareSerial ssrfid(0); // Communication between ESP32 and RDM6300
 
-const char* MQTT_SUBSCRIBE_TOPIC = "IDS_ESP32/write_rfid";
-const char* MQTT_PUBLISH_TOPIC = "IDS_ESP32/read_rfid";
+char buffer[BUFFER_SIZE];  // used to store an incoming data frame
+int buffer_index = 0;
 
-/**
- * Specifies the total number of
- * messages sent so far.
- */
-int total_sent_messages = 0;
+void setup() {
+  // Start USB connection
+  Serial.begin(9600);
 
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
+  // Start UART connection with the RFID scanner
+  ssrfid.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
 
-void setup_wifi() {
-  Serial.print("Connecting to WiFi...");
-  WiFi.begin(SSID, PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < MAX_CONNECTION_TRIES) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("\nConnected to WiFi with IP ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("\nWiFi connection failed!");
-  }
+  Serial.println("INIT DONE");
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  // TODO: For now, the callback function only prints the message out
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.print("\n");
-}
+void loop() {
+  if (ssrfid.available() > 0) {
+    bool call_extract_tag = false;
 
-void reconnect() {
-  while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD)) {
-      Serial.println("connected");
-      mqttClient.subscribe(MQTT_SUBSCRIBE_TOPIC);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" retrying in 5 seconds...");
-      delay(5000);
+    int ssvalue = ssrfid.read();
+
+    if (ssvalue == -1) { // no data was read
+      return;
+    }
+
+    if (ssvalue == 2) { // RDM360/RDM6300 found a tag => tag incoming
+      buffer_index = 0;
+      Serial.println("Tag incoming");
+    } else if (ssvalue == 3) { // Tag has been fully transmitted
+      Serial.println("Reading tag complete");
+      call_extract_tag = true; // Extract tag at the end of the function call
+    }
+
+    if (buffer_index >= BUFFER_SIZE) { // Checking for a buffer overflow (It's very unlikely that an buffer overflow comes up!)
+      Serial.println("Error: Buffer overflow detected!");
+      return;
+    }
+
+    buffer[buffer_index++] = ssvalue; // Everything is alright => copy current value to buffer
+
+    if (call_extract_tag == true) {
+      if (buffer_index == BUFFER_SIZE) {
+        long tag = extract_tag();
+      } else { // Something is wrong... start again looking for preamble (value: 2)
+        buffer_index = 0;
+        return;
+      }
     }
   }
 }
 
-void setup() {
-  // Reset the memory
-  total_sent_messages = 0;
-  Serial.begin(115200);
-  setup_wifi();
-  mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
-  mqttClient.setCallback(callback);
+long extract_tag() {
+  char msg_head = buffer[0];
+  char *msg_data = buffer + 1;  // 10 byte => data contains 2byte version + 8byte tag
+  char *msg_data_version = msg_data;
+  char *msg_data_tag = msg_data + 2;
+  char *msg_checksum = buffer + 11;  // 2 byte
+  char msg_tail = buffer[13];
+
+  // Print message that was sent from RDM630/RDM6300
+  Serial.println("--------");
+
+  Serial.print("Message-Head: ");
+  Serial.println(msg_head);
+
+  Serial.println("Message-Data (HEX): ");
+  for (int i = 0; i < DATA_VERSION_SIZE; ++i) {
+    Serial.print(char(msg_data_version[i]));
+  }
+  Serial.println(" (version)");
+  for (int i = 0; i < DATA_TAG_SIZE; ++i) {
+    Serial.print(char(msg_data_tag[i]));
+  }
+  Serial.println(" (tag)");
+
+  Serial.print("Message-Checksum (HEX): ");
+  for (int i = 0; i < CHECKSUM_SIZE; ++i) {
+    Serial.print(char(msg_checksum[i]));
+  }
+  Serial.println("");
+
+  Serial.print("Message-Tail: ");
+  Serial.println(msg_tail);
+
+  Serial.println("--");
+
+  long tag = hexstr_to_value(msg_data_tag, DATA_TAG_SIZE); // Extract the tag
+  Serial.print("Extracted Tag: ");
+  Serial.println(tag);
+
+  long checksum = 0;
+  // Calculate the checksum
+  for (int i = 0; i < DATA_SIZE; i += CHECKSUM_SIZE) {
+    long val = hexstr_to_value(msg_data + i, CHECKSUM_SIZE);
+    checksum ^= val;
+  }
+  Serial.print("Extracted Checksum (HEX): ");
+  Serial.print(checksum, HEX);
+  if (checksum == hexstr_to_value(msg_checksum, CHECKSUM_SIZE)) {  // Compare calculated checksum to retrieved checksum
+    Serial.print(" (OK)");                                         // Calculated checksum corresponds to transmitted checksum!
+  } else {
+    Serial.print(" (NOT OK)");  // Checksums do not match
+  }
+
+  Serial.println("");
+  Serial.println("--------");
+
+  return tag;
 }
 
-void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    setup_wifi();
-  }
-
-  if (!mqttClient.connected()) {
-    reconnect();
-  }
-
-  // Receiving messages
-  mqttClient.loop();
-
-  // Publishing messages
-  mqttClient.publish(MQTT_PUBLISH_TOPIC, "{\"rfid\":\"2142a9bbb2ou34h234i\",\"device\":\"aDevice\"}");
-  Serial.printf("Published %d messages so far.\n", total_sent_messages);
-  total_sent_messages++;
-  delay(5000);
+/**
+ * Converts a hexadecimal value (encoded as ASCII string) to a numeric value 
+ */
+long hexstr_to_value(char *str, unsigned int length) {
+  char *copy = (char *)malloc((sizeof(char) * length) + 1);
+  memcpy(copy, str, sizeof(char) * length);
+  copy[length] = '\0';
+  // the variable "copy" is a copy of the parameter "str". "copy" has an additional '\0' element to make sure that "str" is null-terminated.
+  long value = strtol(copy, NULL, 16);  // strtol converts a null-terminated string to a long value
+  free(copy); // clean up
+  return value;
 }
