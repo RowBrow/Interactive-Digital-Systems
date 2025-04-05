@@ -1,34 +1,11 @@
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include "ArduinoJson-v7.3.1.h"
+// (c) Michael Schoeffler 2018, http://www.mschoeffler.de
+const int GREEN_LED_PIN = 16 // The ESP32 pin GPIO16 connected to LED 1
+const int RED_LED_PIN = 17 // The ESP32 pin GPIO17 connected to LED 2
 
-// Set up pin numbers for LEDs
-const int GREEN_LED_PIN = 16; // The ESP32 pin GPIO16 connected to LED 1
-const int RED_LED_PIN = 17; // The ESP32 pin GPIO17 connected to LED 2
-
-// Set up the credentials for the WiFi
-const char* SSID = "RUC-IOT";
-const char* PASSWORD = "GiHa2638La";
-const int MAX_CONNECTION_TRIES = 20;
-
-// Configure for selected MQTT broker
-const char* MQTT_SERVER = "public.cloud.shiftr.io";
-const int MQTT_PORT = 1883;
-
-// Set up the credentials for the MQTT broker
-const char* MQTT_USER = "public";
-const char* MQTT_PASSWORD = "public";
-const char* MQTT_CLIENT_ID = "IDS_ESP32_RFID_READER";
-
-// Set up the topics to subscribe and publish to
-const char* MQTT_SUBSCRIBE_TOPIC = "IDS_ESP32/respond_rfid";
-const char* MQTT_PUBLISH_TOPIC = "IDS_ESP32/read_rfid";
-
-// Set up RFID reader ports
 const int RX_PIN = 3;
 const int TX_PIN = 1;
 
-// Set up BUFFER sizes
+
 const int BUFFER_SIZE = 14;       // RFID DATA FRAME FORMAT: 1byte head (value: 2), 10byte data (2byte version + 8byte tag), 2byte checksum, 1byte tail (value: 3)
 const int DATA_SIZE = 10;         // 10byte data (2byte version + 8byte tag)
 const int DATA_VERSION_SIZE = 2;  // 2byte version (actual meaning of these two bytes may vary)
@@ -37,99 +14,14 @@ const int CHECKSUM_SIZE = 2;      // 2byte checksum
 
 HardwareSerial ssrfid(0); // Communication between ESP32 and RDM6300
 
-char buffer[BUFFER_SIZE];  // Used to store an incoming data frame
-char send_buffer[70];
-int buffer_index = 0; // Used while copying data to the buffer
-
-/**
- * Specifies the total number of
- * messages sent so far.
- */
-int total_sent_messages = 0;
-
-// Set up WiFi and MQTT clients
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
-
-/**
- * Attempt to connect to the wifi
- * for a number of tries
- */
-void setup_wifi() {
-  Serial.print("Connecting to WiFi...");
-  WiFi.begin(SSID, PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < MAX_CONNECTION_TRIES) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  // Give information whether the connection was successful
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("\nConnected to WiFi with IP ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("\nWiFi connection failed!");
-  }
-}
-
-/**
- * Perform actions based on the topic and the payload
- * of an MQTT message
- */
-void callback(char* topic, byte* payload, unsigned int length) {
-  JsonDocument doc; // For parsing the JSON response
-
-  deserializeJson(doc, (char*) payload); // Parse JSON response
-
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]); // Print the message
-  }
-  Serial.print("\n");
-
-  // If approved, turn green led on, and vice versa.
-  if(doc["approved"]) {
-    digitalWrite(GREEN_LED_PIN, HIGH); 
-    delay(2000);
-    digitalWrite(GREEN_LED_PIN, LOW); 
-  } else {
-    digitalWrite(RED_LED_PIN, HIGH); 
-    delay(2000);
-    digitalWrite(RED_LED_PIN, LOW);
-  }
-}
-
-/**
- * Attempt to reconnect to the MQTT server
- */
-void reconnect() {
-  while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD)) {
-      Serial.println("connected");
-      mqttClient.subscribe(MQTT_SUBSCRIBE_TOPIC);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" retrying in 5 seconds...");
-      delay(5000);
-    }
-  }
-}
+char buffer[BUFFER_SIZE];  // used to store an incoming data frame
+int buffer_index = 0;
 
 void setup() {
-  // Reset the memory
-  total_sent_messages = 0;
-  Serial.begin(115200);
-
   pinMode(GREEN_LED_PIN, OUTPUT);
   pinMode(RED_LED_PIN, OUTPUT);
-
-  setup_wifi(); // Set up wifi
-  mqttClient.setServer(MQTT_SERVER, MQTT_PORT); // Set up mqtt client
-  mqttClient.setCallback(callback); // Set the callback function for the client
+  // Start USB connection
+  Serial.begin(9600);
 
   // Start UART connection with the RFID scanner
   ssrfid.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
@@ -138,19 +30,6 @@ void setup() {
 }
 
 void loop() {
-  // Check if connection to WiFi still exists
-  if (WiFi.status() != WL_CONNECTED) {
-    setup_wifi(); // Attempt to reconnect if necessary
-  }
-
-  // Check if connection to MQTT broker still exists
-  if (!mqttClient.connected()) {
-    reconnect(); // Attempt to reconnect if necessary
-  }
-
-  mqttClient.loop(); // Receive messages
-
-
   if (ssrfid.available() > 0) {
     bool call_extract_tag = false;
 
@@ -178,12 +57,6 @@ void loop() {
     if (call_extract_tag == true) {
       if (buffer_index == BUFFER_SIZE) {
         long tag = extract_tag();
-        JsonDocument doc;
-        doc["device"] = MQTT_CLIENT_ID;
-        doc["rfid"] = tag;
-        serializeJson(doc, send_buffer);
-        mqttClient.publish(MQTT_PUBLISH_TOPIC, send_buffer);
-        delay(1000);
       } else { // Something is wrong... start again looking for preamble (value: 2)
         buffer_index = 0;
         return;
