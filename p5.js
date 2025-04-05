@@ -8,7 +8,7 @@ document.head.appendChild(script);
 let mqttClient;
 
 // Message to display on the canvas
-let messageReceived = "No message yet.";
+let messageShownOnCanvas = "No message yet.";
 
 
 
@@ -18,8 +18,8 @@ script.onload = function () {
   setupMQTT();
 };
 
-// This may be used for the list of RFIDs
-// with 
+// List of RFID tags recognized
+// by the server as 'authorized'
 let validRFIDs = [78955023];
 
 const MQTT_SUBSCRIBE_TOPIC = "IDS_ESP32/read_rfid";
@@ -49,14 +49,12 @@ function setup() {
   // TODO: Change canvas to be more informative
   createCanvas(600, 200);
   background(220);
-  
-  
 }
 
 function draw() {
   background(220);
   textAlign(CENTER, CENTER);
-  text(messageReceived, width / 2, height / 2);
+  text(messageShownOnCanvas, width / 2, height / 2);
 }
 
 function onConnect() {
@@ -65,51 +63,35 @@ function onConnect() {
 }
 
 function onMessageArrived(topic, message) {
+  // Put information about the message received in the console
   let msg = message.toString();
   let time = new Date(); 
-  console.log(`[INFO]: [${time.toLocaleTimeString()}] Received message ${msg}  on topic ${topic}`)
+  console.log(`[INFO]: [${time.toLocaleTimeString()}] Received message ${msg}  on topic ${topic}`);
+
+  // Parse the message into an object
   let parsed_msg = JSON.parse(message);
   
+  // If the topic is 
   if (topic === MQTT_SUBSCRIBE_TOPIC) {
     if (parsed_msg.rfid) {
-      messageReceived = `[${time.toLocaleTimeString()}] RFID ${parsed_msg.rfid} read from device ${parsed_msg.device}.`;
+      // Change the message on the canvas
+      messageShownOnCanvas = `[${time.toLocaleTimeString()}] RFID ${parsed_msg.rfid} read from device ${parsed_msg.device}.`;
     }
+
+    // Check whether the RFID received is 
+    // in the list of authorized IDs
+    let approved = validRFIDs.includes(parsed_msg.rfid);
+
+    // Prepare the response
+    let response = {
+      device: parsed_msg.device,
+      approved: approved
+    };
+
+    // Publish the response under the appropriate topic
+    mqttClient.publish(MQTT_PUBLISHING_TOPIC, JSON.stringify(response));
+    console.log(`[INFO]: Device ${parsed_msg.device} was given a response ${approved ? "Approved" : "Denied"} for the RFID ${parsed_msg.rfid}.`)
   }
-  
-  let approved = validRFIDs.includes(parsed_msg.rfid);
-  
-  let response = {
-    device: parsed_msg.device,
-    approved: approved
-  }
-  
-  mqttClient.publish(MQTT_PUBLISHING_TOPIC, JSON.stringify(response))
-}
-
-// Writes an id to an RFID chip over MQTT
-// This means the devices on this network 
-// would receive a message to write a 
-// particular ID and would try a write
-// on an RFID chip.
-function writeRFID(device, rfid) {
-  let message = {
-    device: device, // Device that will use the RFID to write to a chip
-    rfid: rfid, // The ID to write to the chip
-  };
-  mqttClient.publish(MQTT_PUBLISHING_TOPIC, JSON.stringify(message));
-}
-
-function drawRandomCircle() {
-  let x = random(width);
-  let y = random(height);
-  let radius = random(20, 50);
-  let r = random(255);
-  let g = random(255);
-  let b = random(255);
-
-  fill(r, g, b);
-  noStroke();
-  ellipse(x, y, radius * 2);
 }
 
 function onFailure(error) {

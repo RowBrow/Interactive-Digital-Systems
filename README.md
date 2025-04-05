@@ -8,3 +8,5 @@ This project is about creating interactive digital systems, and we have chosen t
 - ESP32: LEDs (Valid/Invalid) + MFRC522.
 
 **Idea #4** combines keycard and door control to create an advanced access system. The system uses a keycard to grant access and a simple JSON database in p5.js to manage user data. An ESP32 device controls LEDs that indicate valid or invalid access, and an MFRC522 RFID reader to scan keycards.
+
+The sketch directory contains the files needed to program the ESP32, while the [p5.js](./p5.js) contains the code to run as the server.
