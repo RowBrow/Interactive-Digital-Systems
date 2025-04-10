@@ -78,26 +78,41 @@ void setup_wifi() {
 /**
  * Perform actions based on the topic and the payload
  * of an MQTT message
+ *
+ * A response blocks all other operation
+ * in the device for 2 seconds.
  */
 void callback(char* topic, byte* payload, unsigned int length) {
-  JsonDocument doc; // For parsing the JSON response
+  // Check if the topic is the correct topic
+  if (topic == MQTT_SUBSCRIBE_TOPIC) {
+    JsonDocument doc; // For parsing the JSON response
 
-  deserializeJson(doc, (char*) payload); // Parse JSON response
+    deserializeJson(doc, (char*) payload); // Parse JSON response
+    
+    // Print the message
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]); 
+    }
+    Serial.print("\n");
 
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]); // Print the message
-  }
-  Serial.print("\n");
+    // If the response is not directed to
+    // this device, do not process further
+    if (doc["device"] != MQTT_CLIENT_ID) {
+      return;
+    }
 
-  // If approved, turn green led on, and vice versa.
-  if(doc["approved"]) {
-    digitalWrite(GREEN_LED_PIN, HIGH); 
-    delay(2000);
-    digitalWrite(GREEN_LED_PIN, LOW); 
-  } else {
-    digitalWrite(RED_LED_PIN, HIGH); 
-    delay(2000);
-    digitalWrite(RED_LED_PIN, LOW);
+    // If approved, turn green led on, and vice versa.
+    if(doc["approved"]) {
+      Serial.println("Authorization successful, access granted.");
+      digitalWrite(GREEN_LED_PIN, HIGH); 
+      delay(2000);
+      digitalWrite(GREEN_LED_PIN, LOW); 
+    } else {
+      Serial.println("Authorization failed, access not granted.")
+      digitalWrite(RED_LED_PIN, HIGH); 
+      delay(2000);
+      digitalWrite(RED_LED_PIN, LOW);
+    }
   }
 }
 
@@ -124,6 +139,7 @@ void setup() {
   total_sent_messages = 0;
   Serial.begin(115200);
 
+  // Set pins for led output
   pinMode(GREEN_LED_PIN, OUTPUT);
   pinMode(RED_LED_PIN, OUTPUT);
 
@@ -178,9 +194,13 @@ void loop() {
     if (call_extract_tag == true) {
       if (buffer_index == BUFFER_SIZE) {
         long tag = extract_tag();
-        JsonDocument doc;
+        JsonDocument doc; // For creating the JSON message
+
+        // Set fields to the appropriate values
         doc["device"] = MQTT_CLIENT_ID;
         doc["rfid"] = tag;
+
+        // Convert the JSON into its string representation and send it
         serializeJson(doc, send_buffer);
         mqttClient.publish(MQTT_PUBLISH_TOPIC, send_buffer);
         delay(1000);
@@ -239,10 +259,12 @@ long extract_tag() {
   }
   Serial.print("Extracted Checksum (HEX): ");
   Serial.print(checksum, HEX);
-  if (checksum == hexstr_to_value(msg_checksum, CHECKSUM_SIZE)) {  // Compare calculated checksum to retrieved checksum
-    Serial.print(" (OK)");                                         // Calculated checksum corresponds to transmitted checksum!
+
+  // Compare calculated checksum to retrieved checksum
+  if (checksum == hexstr_to_value(msg_checksum, CHECKSUM_SIZE)) {
+    Serial.print(" (OK)"); // Calculated checksum corresponds to transmitted checksum!
   } else {
-    Serial.print(" (NOT OK)");  // Checksums do not match
+    Serial.print(" (NOT OK)"); // Checksums do not match
   }
 
   Serial.println("");
@@ -255,11 +277,11 @@ long extract_tag() {
  * Converts a hexadecimal value (encoded as ASCII string) to a numeric value 
  */
 long hexstr_to_value(char *str, unsigned int length) {
-  char *copy = (char *)malloc((sizeof(char) * length) + 1);
+  char *copy = (char *) malloc((sizeof(char) * length) + 1);
   memcpy(copy, str, sizeof(char) * length);
   copy[length] = '\0';
   // the variable "copy" is a copy of the parameter "str". "copy" has an additional '\0' element to make sure that "str" is null-terminated.
-  long value = strtol(copy, NULL, 16);  // strtol converts a null-terminated string to a long value
+  long value = strtol(copy, NULL, 16);  // strtol converts a null-terminated string to a long value (base is 16, so hexadecimal)
   free(copy); // clean up
   return value;
 }
