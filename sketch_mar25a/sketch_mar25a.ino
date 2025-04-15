@@ -41,11 +41,8 @@ char buffer[BUFFER_SIZE];  // Used to store an incoming data frame
 char send_buffer[70];
 int buffer_index = 0; // Used while copying data to the buffer
 
-/**
- * Specifies the total number of
- * messages sent so far.
- */
-int total_sent_messages = 0;
+unsigned long latest_transmission;
+unsigned long INTERVAL_BETWEEN_TRANSMISSION = 5000; // The time between transmissions in milliseconds
 
 // Set up WiFi and MQTT clients
 WiFiClient wifiClient;
@@ -84,7 +81,7 @@ void setup_wifi() {
  */
 void callback(char* topic, byte* payload, unsigned int length) {
   // Check if the topic is the correct topic
-  if (topic == MQTT_SUBSCRIBE_TOPIC) {
+  if (strcmp(topic, MQTT_SUBSCRIBE_TOPIC) == 0) {
     JsonDocument doc; // For parsing the JSON response
 
     deserializeJson(doc, (char*) payload); // Parse JSON response
@@ -93,7 +90,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     for (int i = 0; i < length; i++) {
       Serial.print((char)payload[i]); 
     }
-    Serial.print("\n");
+    Serial.print("\n"); 
 
     // If the response is not directed to
     // this device, do not process further
@@ -108,7 +105,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
       delay(2000);
       digitalWrite(GREEN_LED_PIN, LOW); 
     } else {
-      Serial.println("Authorization failed, access not granted.")
+      Serial.println("Authorization failed, access not granted.");
       digitalWrite(RED_LED_PIN, HIGH); 
       delay(2000);
       digitalWrite(RED_LED_PIN, LOW);
@@ -135,8 +132,6 @@ void reconnect() {
 }
 
 void setup() {
-  // Reset the memory
-  total_sent_messages = 0;
   Serial.begin(115200);
 
   // Set pins for led output
@@ -191,7 +186,8 @@ void loop() {
 
     buffer[buffer_index++] = ssvalue; // Everything is alright => copy current value to buffer
 
-    if (call_extract_tag == true) {
+    // If at least 5 seconds passed since the last transmission
+    if (call_extract_tag && (millis() - latest_transmission > INTERVAL_BETWEEN_TRANSMISSION)) {
       if (buffer_index == BUFFER_SIZE) {
         long tag = extract_tag();
         JsonDocument doc; // For creating the JSON message
@@ -203,7 +199,7 @@ void loop() {
         // Convert the JSON into its string representation and send it
         serializeJson(doc, send_buffer);
         mqttClient.publish(MQTT_PUBLISH_TOPIC, send_buffer);
-        delay(1000);
+        latest_transmission = millis();
       } else { // Something is wrong... start again looking for preamble (value: 2)
         buffer_index = 0;
         return;
