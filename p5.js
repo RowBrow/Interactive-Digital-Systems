@@ -20,7 +20,7 @@ script.onload = function () {
 
 // List of RFID tags recognized
 // by the server as 'authorized'
-let validRFIDs = [78955023];
+let validRFIDs = [7895502, 805327990];
 
 const MQTT_SUBSCRIBE_TOPIC = "IDS_ESP32/read_rfid";
 const MQTT_PUBLISHING_TOPIC = "IDS_ESP32/respond_rfid";
