@@ -162,6 +162,8 @@ void loop() {
   mqttClient.loop(); // Receive messages
 
 
+  // Taken from https://mschoeffler.com/2018/01/05/arduino-tutorial-how-to-use-the-rdm630-rdm6300-rfid-reader/
+  // and modified to do different actions with the received RFID tag.
   if (ssrfid.available() > 0) {
     bool call_extract_tag = false;
 
@@ -208,6 +210,10 @@ void loop() {
   }
 }
 
+
+/*
+ * Taken from https://mschoeffler.com/2018/01/05/arduino-tutorial-how-to-use-the-rdm630-rdm6300-rfid-reader/
+ */
 long extract_tag() {
   char msg_head = buffer[0];
   char *msg_data = buffer + 1;  // 10 byte => data contains 2byte version + 8byte tag
@@ -271,6 +277,7 @@ long extract_tag() {
 
 /**
  * Converts a hexadecimal value (encoded as ASCII string) to a numeric value 
+ * Taken from https://mschoeffler.com/2018/01/05/arduino-tutorial-how-to-use-the-rdm630-rdm6300-rfid-reader/
  */
 long hexstr_to_value(char *str, unsigned int length) {
   char *copy = (char *) malloc((sizeof(char) * length) + 1);
