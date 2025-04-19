@@ -13,7 +13,7 @@ let messageShownOnCanvas = "No message yet.";
 
 
 // When MQTT.js is loaded,
-// set up the client
+// set up the client  //called after the external MQTT.js library has finished loading.
 script.onload = function () {
   setupMQTT();
 };
