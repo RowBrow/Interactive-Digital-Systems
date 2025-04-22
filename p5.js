@@ -45,8 +45,6 @@ function setupMQTT() {
 }
 
 function setup() {
-  // Boilerplate code, will change later
-  // TODO: Change canvas to be more informative
   createCanvas(600, 200);
   background(220);
 }
